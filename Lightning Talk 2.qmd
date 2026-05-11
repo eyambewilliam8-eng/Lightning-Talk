@@ -1,0 +1,213 @@
+---
+title: "Injury Analysis using injurytools"
+subtitle: "Quantifying the Unavailbility Crisis with `injurytools`"
+author: "William Eyambe"
+format: 
+  revealjs:
+    theme: dark
+    transition: fade
+    slide-number: true
+    footer: "Lightning Talk | injurytools"
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+
+## Manchester United FC
+
+
+
+![](images/clipboard-225585063.png){fig-align="center" width="483"}
+
+
+
+## The Injury Crisis
+
+
+
+![](images/clipboard-3535645239.png){fig-align="center" width="479"}
+
+
+
+## A Defensive Crisis
+
+
+
+Manchester United's 2025/26 campaign was heavily impacted by a lack of physical continuity.
+
+
+
+- **Previous Performance:** Inconsistent results were directly tied to an inability to field a stable defensive line.
+
+- **The Core Issue:** High Injury Burden, the combination of high frequency (many knocks) and high severity (long-term absences like Lisandro Martínez).
+
+- **The Result:** Tactical compromises that led to increased goals against and dropped points.
+
+
+
+## The Solution: `injurytools`
+
+
+
+To move from **reactive** treatment to **proactive** prevention, we utilize the `injurytools` R package.
+
+
+
+- **Standardization:** Centralizes medical and coaching logs into a single `injd` object.
+
+- **Monitoring:** Tracks Incidence Rates (injuries per 1,000 player-hours).
+
+- **Prevention:** Identifies high-risk players to inform training load management before a minor knock becomes a major tear.
+
+
+
+## Load Libraries & Data
+
+
+```{r}
+#| label: setup
+#| echo: true
+library(injurytools)
+library(tidyverse)
+library(readxl)
+library(knitr)
+
+history <- read_excel(
+  "Manchester United 25-26 Injury Report - Copy.xlsx",
+  sheet = "Injury History 2025-26"
+) |>
+  mutate(
+    `From Date` = as.Date(`From Date`),
+    `To Date`   = as.Date(`To Date`)
+  )
+
+glimpse(history)
+```
+## Standardize with `injurytools`
+```{r}
+#| echo: true
+df_inj <- prepare_inj(
+  df_injuries0   = history,
+  person_id      = "Player Name",
+  date_injured   = "From Date",
+  date_recovered = "To Date"
+)
+
+
+head(df_inj)
+```
+
+## Average Days Out by Position
+```{r}
+df_inj |>
+  group_by(Position) |>
+  summarise(`Avg Days Out` = round(mean(`Days Out`, na.rm = TRUE), 1)) |>
+  arrange(desc(`Avg Days Out`)) |>
+  knitr::kable()
+```
+
+## Injury Severity Breakdown
+```{r}
+df_inj |>
+  count(Severity) |>
+  ggplot(aes(x = reorder(Severity, n), y = n)) +
+  geom_col() +
+  labs(
+    title = "Man Utd 2025/26 — Injuries by Severity",
+    x = "Severity",
+    y = "Number of Injuries"
+  )
+```
+
+
+## Building the `injd` Object
+
+
+```{r}
+#| label: build-injd
+#| echo: true
+
+season_days <- as.numeric(as.Date("2026-05-31") - as.Date("2025-08-01"))
+
+df_exp_raw <- history |>
+  group_by(`Player Name`) |>
+  summarise(days_out = sum(`Days Out`, na.rm = TRUE)) |>
+  mutate(
+    year      = 2025L,
+    time_expo = round(pmax(0, (season_days - days_out) / season_days) * 38 * 90)
+  )
+```
+
+```{r}
+df_exp <- prepare_exp(
+  df_exposures0 = df_exp_raw,
+  person_id     = "Player Name",
+  date          = "year",
+  time_expo     = "time_expo"
+)
+```
+
+```{r}
+my_injd <- prepare_all(
+  data_exposures = df_exp,
+  data_injuries  = df_inj,
+  exp_unit       = "matches_minutes"
+)
+```
+
+
+## Man Utd 2025/26 Injury Timeline
+
+
+```{r}
+#| fig-width: 12
+#| fig-height: 8
+gg_photo(my_injd,
+         title   = "Man Utd 2025/26 — Injury Timeline",
+         by_date = "2 months") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    axis.text.y = element_text(size = 9)
+  )
+```
+
+
+## Exploratory Analysis
+# Days out per player
+```{r}
+#| layout-ncol: 2
+#| fig-height: 5
+
+history |>
+  group_by(`Player Name`) |>
+  summarise(total_days = sum(`Days Out`, na.rm = TRUE)) |>
+  ggplot(aes(x = total_days, y = reorder(`Player Name`, total_days))) +
+  geom_col() +
+  labs(
+    title = "Total Days Lost per Player",
+    x = "Days Lost",
+    y = NULL
+  )
+```
+
+
+# Unavailability by category
+```{r}
+history |>
+  count(`Injury Category`) |>
+  ggplot(aes(x = n, y = reorder(`Injury Category`, n))) +
+  geom_col() +
+  labs(
+    title = "Injuries by Category",
+    x = "Count",
+    y = NULL
+  )
+```
+## Data & Methods Acknowledgements
+
+- **Zumeta, L.** (n.d.). *Visualizing injury data with injurytools*.GitHub: https://github.com/lzumeta/injurytools/blob/master/vignettes/visualize-injury-data.Rmd
+
+
+- **Transfermarkt GmbH & Co. KG**. (2025). *Manchester United injury history*.https://www.transfermarkt.com
